@@ -1,0 +1,29 @@
+{
+  "name": "pulsesync-module-demo",
+  "version": "0.1.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node ../../scripts/dev-build.mjs .",
+    "build": "node ./node_modules/vite/bin/vite.js build",
+    "sync": "node ../../scripts/sync-addon.mjs .",
+    "build:sync": "yarn build && yarn sync",
+    "format": "oxfmt .",
+    "build:modules": "node ../../scripts/module-compile.mjs .",
+    "serve:modules": "node ./scripts/serve-modules.mjs"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "dependencies": {
+    "@pulsesync/addon-sdk": "0.15.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.4.1",
+    "@types/react": "19.2.18",
+    "react": "19.2.8",
+    "typescript": "7.0.2",
+    "vite": "8.2.2",
+    "oxfmt": "0.71.0"
+  }
+}

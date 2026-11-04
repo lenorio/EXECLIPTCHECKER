@@ -1,0 +1,30 @@
+{
+  "name": "pulsesync-lyrics-explicit-mark",
+  "version": "0.1.18",
+  "private": true,
+  "type": "module",
+  "description": "Lyrics-based Explicit badge for PulseSync",
+  "scripts": {
+    "dev": "node ./scripts/dev-build.mjs",
+    "build": "node ./node_modules/vite/bin/vite.js build",
+    "build:modules": "node ./scripts/module-compile.mjs",
+    "format": "oxfmt .",
+    "sync": "node ./scripts/sync-addon.mjs",
+    "build:sync": "yarn build && yarn sync"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "dependencies": {
+    "@pulsesync/addon-sdk": "0.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "@types/react": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "react": "19.3.1",
+    "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "oxfmt": "0.74.0"
+  }
+}
