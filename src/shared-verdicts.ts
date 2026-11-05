@@ -1,6 +1,5 @@
 import type { AddonApi } from '@pulsesync/addon-sdk'
-import publicKey from './shared-public-key.json'
-import { compactTrackList, parseTrackList } from './verdict-format.mjs'
+import { compactTrackList } from './verdict-format.mjs'
 
 export const CACHE_PREFIX = 'lyrics-verdict-v1:'
 export const RULES_VERSION = 3
@@ -8,30 +7,6 @@ export type CachedVerdict = 'explicit' | 'clean' | 'missing'
 
 export function isShareableVerdict(value: unknown): value is 'explicit' | 'clean' {
     return value === 'explicit' || value === 'clean'
-}
-
-const baseUrl = 'https://raw.githubusercontent.com/lenorio/EXECLIPTCHECKER/main/'
-
-export async function loadSharedVerdicts(api: AddonApi): Promise<Map<string, CachedVerdict>> {
-    for (const file of ['verified-tracks-v2.json', 'verified-tracks.json']) {
-        try {
-            const response = await api.net.json<{ data: unknown; signature: string }>(baseUrl + file, {
-                timeoutMs: 5000, signal: api.signal, cache: 'no-cache',
-            })
-            const key = await crypto.subtle.importKey('jwk', publicKey, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify'])
-            const valid = await crypto.subtle.verify(
-                { name: 'ECDSA', hash: 'SHA-256' }, key,
-                Uint8Array.from(atob(response.signature), char => char.charCodeAt(0)),
-                new TextEncoder().encode(JSON.stringify(response.data)),
-            )
-            if (!valid) throw new Error('Недействительная подпись')
-            return parseTrackList(response.data, RULES_VERSION)
-        } catch (error) {
-            if (!api.signal.aborted) api.logger.warn('Общий список проверок недоступен', error)
-            if (api.signal.aborted) break
-        }
-    }
-    return new Map()
 }
 
 const exportFileName = 'explicit-track-submission.json'
@@ -139,20 +114,29 @@ async function exportVerdicts(api: AddonApi): Promise<HTMLDialogElement | undefi
     }
 }
 
-export function createExportSettingsItem(api: AddonApi) {
+export function createSettingsRow(name: string, description: string, attribute: string) {
     const item = document.createElement('li')
-    item.setAttribute('data-lyrics-export-settings', '')
+    item.setAttribute(attribute, '')
+    item.setAttribute('data-lyrics-settings-row', '')
     const button = document.createElement('button')
     button.type = 'button'
     const text = document.createElement('span')
     const title = document.createElement('strong')
-    title.textContent = 'Экспортировать проверенные треки'
+    title.textContent = name
     const detail = document.createElement('small')
-    detail.textContent = 'Сохранить результаты проверки в JSON'
+    detail.textContent = description
     text.append(title, detail)
     const arrow = document.createElement('span')
     arrow.setAttribute('aria-hidden', 'true')
     button.append(text, arrow)
+    item.append(button)
+    return { item, button, detail }
+}
+
+export function createExportSettingsItem(api: AddonApi) {
+    const { item, button } = createSettingsRow(
+        'Экспортировать проверенные треки', 'Сохранить результаты проверки в JSON', 'data-lyrics-export-settings',
+    )
     let dialog: HTMLDialogElement | undefined
     let disposed = false
     button.addEventListener('click', async () => {
@@ -166,7 +150,6 @@ export function createExportSettingsItem(api: AddonApi) {
             button.removeAttribute('aria-busy')
         }
     })
-    item.append(button)
     return { item, dispose: () => {
         disposed = true
         dialog?.close()

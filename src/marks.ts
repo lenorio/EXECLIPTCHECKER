@@ -6,7 +6,8 @@ import cleanSvg from '../addon/Assets/noexlicit.svg?raw'
 import missingSvg from '../addon/Assets/missing-lyrics.svg?raw'
 import spinnerSvg from '../addon/Assets/spinner-solid-full.svg?raw'
 import { containsRestrictedContent } from './profanity'
-import { CACHE_PREFIX, RULES_VERSION, createExportSettingsItem, loadSharedVerdicts, type CachedVerdict } from './shared-verdicts'
+import { CACHE_PREFIX, RULES_VERSION, createExportSettingsItem, type CachedVerdict } from './shared-verdicts'
+import { createSharedDatabase } from './shared-database'
 import './marks.css'
 
 type Track = { id?: string; title: string; artist: string; duration?: number }
@@ -107,6 +108,10 @@ async function lrclibLyrics(api: AddonApi, track: Track): Promise<string | null>
 async function classify(api: AddonApi, track: Track, shared: Promise<Map<string, CachedVerdict>>): Promise<Verdict> {
     const key = keyOf(track)
     const explicitTitle = containsRestrictedContent(track.title)
+    const sharedVerdicts = explicitTitle ? undefined : await shared
+    if (api.signal.aborted) return 'unknown'
+    const verified = sharedVerdicts?.get(key)
+    if (verified) return verified
     const cached = cache.get(key)
     if (cached && (!explicitTitle || cached === 'explicit')) return cached
     if (!explicitTitle && (failedUntil.get(key) || 0) > Date.now()) return 'unknown'
@@ -114,14 +119,10 @@ async function classify(api: AddonApi, track: Track, shared: Promise<Map<string,
     if (active) return active
     const task = (async (): Promise<Verdict> => {
         const storageKey = `${CACHE_PREFIX}${encodeURIComponent(key)}`
-        const verified = explicitTitle ? undefined : (await shared).get(key)
-        if (api.signal.aborted) return 'unknown'
-        if (verified) {
-            remember(key, verified)
-            return verified
-        }
         try {
             const saved = await api.storage.get<{ verdict?: CachedVerdict; rulesVersion?: number }>(storageKey)
+            const latest = sharedVerdicts?.get(key)
+            if (latest) return latest
             if (!explicitTitle && (saved?.verdict === 'explicit' || saved?.verdict === 'missing' ||
                 (saved?.verdict === 'clean' && saved.rulesVersion === RULES_VERSION))) {
                 remember(key, saved.verdict)
@@ -149,6 +150,8 @@ async function classify(api: AddonApi, track: Track, shared: Promise<Map<string,
             }
         }
         if (api.signal.aborted) return 'unknown'
+        const latest = sharedVerdicts?.get(key)
+        if (latest) return latest
         const verdict: Verdict = lyrics?.trim() ? containsRestrictedContent(lyrics) ? 'explicit' : 'clean' : lrclibCompleted ? 'missing' : 'unknown'
         if (verdict !== 'unknown') {
             remember(key, verdict)
@@ -205,7 +208,6 @@ export function startExplicitMarks(api: AddonApi): () => void {
     pending.clear()
     cache.clear()
     failedUntil.clear()
-    const shared = loadSharedVerdicts(api)
     const { item: exportItem, dispose: disposeExport } = createExportSettingsItem(api)
     const marks = new Map<Element, { key: string; verdict?: Verdict }>()
     let current: CurrentTrack | null = null
@@ -324,6 +326,7 @@ export function startExplicitMarks(api: AddonApi): () => void {
         else if (settingsList && exportItem.parentElement !== settingsList) {
             settingsList.insertBefore(exportItem, settingsList.children[1] || null)
         }
+        if (settingsList && exportItem.nextElementSibling !== sharedDatabase.item) exportItem.after(sharedDatabase.item)
         updateMenuSwitch()
         const active = new Set<Element>()
         document.querySelectorAll(titleSelector).forEach(title => {
@@ -361,6 +364,16 @@ export function startExplicitMarks(api: AddonApi): () => void {
     const schedule = () => {
         if (!stopped && timer === undefined) timer = window.setTimeout(scan, 80)
     }
+    const sharedDatabase = createSharedDatabase(api, () => {
+        if (stopped) return
+        cache.clear()
+        failedUntil.clear()
+        for (const entry of marks.values()) entry.verdict = 'unknown'
+        checkPlayback()
+        refreshQueue()
+        schedule()
+    })
+    const shared = sharedDatabase.ready
     const observer = new MutationObserver(schedule)
     observer.observe(document.documentElement, {
         childList: true, subtree: true, characterData: true, attributes: true,
@@ -431,6 +444,7 @@ export function startExplicitMarks(api: AddonApi): () => void {
         stopped = true
         observer.disconnect()
         disposeExport()
+        sharedDatabase.dispose()
         document.removeEventListener('click', onSwitchClick, true)
         for (const [item, role] of switchRoles) {
             item.removeAttribute('data-lyrics-skip-switch')

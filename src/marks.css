@@ -63,11 +63,11 @@
     opacity: 0.65;
 }
 
-[data-lyrics-export-settings] {
+[data-lyrics-settings-row] {
     list-style: none;
 }
 
-[data-lyrics-export-settings] > button {
+[data-lyrics-settings-row] > button {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -83,18 +83,18 @@
     cursor: pointer;
 }
 
-[data-lyrics-export-settings] strong,
-[data-lyrics-export-settings] small {
+[data-lyrics-settings-row] strong,
+[data-lyrics-settings-row] small {
     display: block;
 }
 
-[data-lyrics-export-settings] strong {
+[data-lyrics-settings-row] strong {
     font-size: 20px;
     line-height: 24px;
     font-weight: 700;
 }
 
-[data-lyrics-export-settings] small {
+[data-lyrics-settings-row] small {
     margin-top: 8px;
     font-size: 14px;
     line-height: 18px;
@@ -103,7 +103,7 @@
     opacity: 0.55;
 }
 
-[data-lyrics-export-settings] button > span[aria-hidden] {
+[data-lyrics-settings-row] button > span[aria-hidden] {
     flex: 0 0 12px;
     height: 12px;
     border: solid currentColor;
@@ -112,11 +112,11 @@
     opacity: 0.55;
 }
 
-[data-lyrics-export-settings] button:hover > span[aria-hidden] {
+[data-lyrics-settings-row] button:hover > span[aria-hidden] {
     opacity: 1;
 }
 
-[data-lyrics-export-settings] button:disabled {
+[data-lyrics-settings-row] button:disabled {
     cursor: wait;
 }
 
@@ -176,4 +176,44 @@
 [data-lyrics-export-dialog] [role="status"] {
     min-height: 1.3em;
     margin: 12px 0 0;
+}
+
+[data-lyrics-database-progress] {
+    position: fixed;
+    inset: 0 0 auto;
+    height: 3px;
+    overflow: hidden;
+    background: rgb(255 220 0 / 20%);
+    z-index: 2147483647;
+    pointer-events: none;
+}
+
+[data-lyrics-database-progress]::before {
+    content: '';
+    display: block;
+    width: 35%;
+    height: 100%;
+    background: var(--ym-controls-color-primary-default-enabled, #ffdc00);
+    animation: lyrics-database-loading 1.2s ease-in-out infinite;
+}
+
+[data-lyrics-database-progress][aria-valuenow="100"]::before {
+    width: 100%;
+    animation: none;
+}
+
+@keyframes lyrics-database-loading {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(386%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    [data-lyrics-database-progress]::before {
+        width: 100%;
+        animation: none;
+    }
+}
+
+[data-lyrics-database-settings] button:disabled {
+    cursor: progress;
 }
