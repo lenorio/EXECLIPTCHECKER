@@ -1,4 +1,5 @@
 import type { AddonApi, CurrentTrack } from '@pulsesync/addon-sdk'
+import addonConfig from '../addon.config.mjs'
 import explicitSvg from '../addon/Assets/explicit.svg?raw'
 import cleanSvg from '../addon/Assets/noexlicit.svg?raw'
 import missingSvg from '../addon/Assets/missing-lyrics.svg?raw'
@@ -80,7 +81,7 @@ async function lrclibLyrics(api: AddonApi, track: Track): Promise<string | null>
         const response = await api.net.fetch(`https://lrclib.net/api/get?${params}`, {
             timeoutMs: 8000,
             signal: api.signal,
-            headers: { 'Lrclib-Client': 'LyricsExplicitMark/0.1.18 (https://pulsesync.dev/)' },
+            headers: { 'Lrclib-Client': `LyricsExplicitMark/${addonConfig.version} (https://github.com/lenorio/EXECLIPTCHECKER)` },
         })
         if (response.status === 429 || response.status === 503) {
             const retryAfter = response.headers.get('Retry-After')
