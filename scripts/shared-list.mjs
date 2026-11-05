@@ -1,29 +1,30 @@
 import { createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { compactTrackList, parseTrackList } from '../src/verdict-format.mjs'
 
 const keyPath = process.env.EXPLICIT_SIGNING_KEY || join(process.env.LOCALAPPDATA || process.env.HOME, 'LyricsExplicitMark', 'signing-key.pem')
 const publicKeyPath = new URL('../src/shared-public-key.json', import.meta.url)
 const dataPath = new URL('../dist/verified-tracks.json', import.meta.url)
 const [command, file] = process.argv.slice(2)
 const rulesVersion = 3
-const emptyList = () => ({ schema: 1, rulesVersion, tracks: {} })
+const emptyList = () => new Map()
 
 function parseList(payload) {
-    const data = JSON.parse(payload)
-    if (data?.schema !== 1 || data.rulesVersion !== rulesVersion || !data.tracks ||
-        typeof data.tracks !== 'object' || Array.isArray(data.tracks) ||
-        Object.entries(data.tracks).some(([id, verdict]) => !/^\d+$/.test(id) || !['explicit', 'clean'].includes(verdict))) {
-        throw new Error('Неверный формат списка проверок или версия правил')
-    }
-    return data
+    return parseTrackList(JSON.parse(payload.replace(/^\uFEFF/, '')), rulesVersion)
 }
 
-async function writeSigned(data, key) {
+async function writeSigned(tracks, key) {
+    const data = { schema: 1, rulesVersion, tracks: Object.fromEntries(tracks) }
     const payload = JSON.stringify(data)
     const signature = sign('sha256', Buffer.from(payload), { key, dsaEncoding: 'ieee-p1363' }).toString('base64')
     await mkdir(new URL('.', dataPath), { recursive: true })
     await writeFile(dataPath, JSON.stringify({ data, signature }, null, 2) + '\n')
+    const compact = compactTrackList(tracks, rulesVersion)
+    const compactSignature = sign('sha256', Buffer.from(JSON.stringify(compact)), { key, dsaEncoding: 'ieee-p1363' }).toString('base64')
+    await writeFile(new URL('../dist/verified-tracks-v2.json', import.meta.url),
+        JSON.stringify({ data: compact, signature: compactSignature }) + '\n')
+    console.log(`Сохранено ${tracks.size} треков в verified-tracks.json и verified-tracks-v2.json. Для публикации загрузите оба файла.`)
 }
 
 if (command === 'init') {
@@ -49,8 +50,8 @@ if (command === 'init') {
         }
         const shared = parseList(payload)
         const reviewed = parseList(await readFile(file, 'utf8'))
-        for (const [id, verdict] of Object.entries(reviewed.tracks)) {
-            if (!Object.hasOwn(shared.tracks, id)) shared.tracks[id] = verdict
+        for (const [id, verdict] of reviewed) {
+            if (!shared.has(id)) shared.set(id, verdict)
         }
         await writeSigned(shared, privateKey)
     }

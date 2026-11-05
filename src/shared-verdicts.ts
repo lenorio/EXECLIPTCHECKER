@@ -1,5 +1,6 @@
 import type { AddonApi } from '@pulsesync/addon-sdk'
 import publicKey from './shared-public-key.json'
+import { compactTrackList, parseTrackList } from './verdict-format.mjs'
 
 export const CACHE_PREFIX = 'lyrics-verdict-v1:'
 export const RULES_VERSION = 3
@@ -9,30 +10,28 @@ export function isShareableVerdict(value: unknown): value is 'explicit' | 'clean
     return value === 'explicit' || value === 'clean'
 }
 
-const url = 'https://raw.githubusercontent.com/lenorio/EXECLIPTCHECKER/main/verified-tracks.json'
+const baseUrl = 'https://raw.githubusercontent.com/lenorio/EXECLIPTCHECKER/main/'
 
 export async function loadSharedVerdicts(api: AddonApi): Promise<Map<string, CachedVerdict>> {
-    const verdicts = new Map<string, CachedVerdict>()
-    try {
-        const response = await api.net.json<{ data: unknown; signature: string }>(url, {
-            timeoutMs: 5000, signal: api.signal, cache: 'no-cache',
-        })
-        const key = await crypto.subtle.importKey('jwk', publicKey, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify'])
-        const valid = await crypto.subtle.verify(
-            { name: 'ECDSA', hash: 'SHA-256' }, key,
-            Uint8Array.from(atob(response.signature), char => char.charCodeAt(0)),
-            new TextEncoder().encode(JSON.stringify(response.data)),
-        )
-        if (!valid) throw new Error('Недействительная подпись')
-        const data = response.data as { schema?: number; rulesVersion?: number; tracks?: Record<string, unknown> }
-        if (data?.schema !== 1 || data.rulesVersion !== RULES_VERSION || !data.tracks || Array.isArray(data.tracks)) return verdicts
-        for (const [id, verdict] of Object.entries(data.tracks)) {
-            if (/^\d+$/.test(id) && isShareableVerdict(verdict)) verdicts.set(id, verdict)
+    for (const file of ['verified-tracks-v2.json', 'verified-tracks.json']) {
+        try {
+            const response = await api.net.json<{ data: unknown; signature: string }>(baseUrl + file, {
+                timeoutMs: 5000, signal: api.signal, cache: 'no-cache',
+            })
+            const key = await crypto.subtle.importKey('jwk', publicKey, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify'])
+            const valid = await crypto.subtle.verify(
+                { name: 'ECDSA', hash: 'SHA-256' }, key,
+                Uint8Array.from(atob(response.signature), char => char.charCodeAt(0)),
+                new TextEncoder().encode(JSON.stringify(response.data)),
+            )
+            if (!valid) throw new Error('Недействительная подпись')
+            return parseTrackList(response.data, RULES_VERSION)
+        } catch (error) {
+            if (!api.signal.aborted) api.logger.warn('Общий список проверок недоступен', error)
+            if (api.signal.aborted) break
         }
-    } catch (error) {
-        if (!api.signal.aborted) api.logger.warn('Общий список проверок недоступен', error)
     }
-    return verdicts
+    return new Map()
 }
 
 const exportFileName = 'explicit-track-submission.json'
@@ -120,17 +119,17 @@ function openExportDialog(json: string, count: number): HTMLDialogElement {
 
 async function exportVerdicts(api: AddonApi): Promise<HTMLDialogElement | undefined> {
     try {
-        const tracks: Record<string, 'explicit' | 'clean'> = {}
+        const tracks = new Map<string, 'explicit' | 'clean'>()
         for (const key of await api.storage.keys()) {
             if (!key.startsWith(CACHE_PREFIX)) continue
             const id = key.slice(CACHE_PREFIX.length)
             if (!/^\d+$/.test(id)) continue
             const entry = await api.storage.get<{ verdict?: unknown; rulesVersion?: number }>(key)
-            if (entry?.rulesVersion === RULES_VERSION && isShareableVerdict(entry.verdict)) tracks[id] = entry.verdict
+            if (entry?.rulesVersion === RULES_VERSION && isShareableVerdict(entry.verdict)) tracks.set(id, entry.verdict)
         }
         if (api.signal.aborted) return
-        const json = JSON.stringify({ schema: 1, rulesVersion: RULES_VERSION, tracks }, null, 2)
-        return openExportDialog(json, Object.keys(tracks).length)
+        const json = JSON.stringify(compactTrackList(tracks, RULES_VERSION))
+        return openExportDialog(json, tracks.size)
     } catch (error) {
         api.logger.warn('Ошибка экспорта проверок', error)
         await api.modals.alert({
