@@ -1,4 +1,5 @@
 import type { AddonApi, CurrentTrack } from '@pulsesync/addon-sdk'
+import { setNativeTooltip } from '@pulsesync/addon-sdk'
 import addonConfig from '../addon.config.mjs'
 import explicitSvg from '../addon/Assets/explicit.svg?raw'
 import cleanSvg from '../addon/Assets/noexlicit.svg?raw'
@@ -173,21 +174,31 @@ const badges = {
     loading: { markup: spinnerSvg, label: 'Проверяем текст песни' },
 }
 const playerBar = '[class*="PlayerBar_root"], [class*="PlayerBarDesktopWithBackgroundProgressBar_root"], [class*="PlayerBarMobile_root"], [class*="CommonLayout_playerBar"]'
+const tooltipCleanup = new WeakMap<Element, () => void>()
+
+function removeBadge(host: Element): void {
+    const badge = host.querySelector(':scope > [data-lyrics-verdict-mark]')
+    if (!badge) return
+    tooltipCleanup.get(badge)?.()
+    tooltipCleanup.delete(badge)
+    badge.remove()
+}
 
 function showBadge(host: Element, badge: Badge): void {
     const existing = host.querySelector(':scope > [data-lyrics-verdict-mark]')
     if (existing?.getAttribute('data-lyrics-verdict-mark') === badge) return
     const { markup, label } = badges[badge]
     const svg = document.importNode(new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement, true)
-    svg.setAttribute('data-lyrics-verdict-mark', badge)
-    svg.setAttribute('role', 'img')
-    svg.setAttribute('aria-label', label)
     svg.setAttribute('fill', 'currentColor')
-    const title = document.createElementNS('http://www.w3.org/2000/svg', 'title')
-    title.textContent = label
-    svg.prepend(title)
-    if (existing) existing.replaceWith(svg)
-    else host.append(svg)
+    svg.setAttribute('aria-hidden', 'true')
+    const anchor = document.createElement('span')
+    anchor.setAttribute('data-lyrics-verdict-mark', badge)
+    anchor.setAttribute('role', 'img')
+    anchor.setAttribute('aria-label', label)
+    anchor.append(svg)
+    tooltipCleanup.set(anchor, setNativeTooltip(anchor, { content: label }))
+    removeBadge(host)
+    host.append(anchor)
 }
 
 export function startExplicitMarks(api: AddonApi): () => void {
@@ -204,6 +215,9 @@ export function startExplicitMarks(api: AddonApi): () => void {
     let playbackCheck = 0
     let skipEnabled = false
     let savingSkip = false
+    let upcoming: Track[] = []
+    let prechecking = false
+    let queueRevision = 0
     const switchRoles = new Map<HTMLElement, string | null>()
 
     const updateMenuSwitch = () => {
@@ -223,6 +237,56 @@ export function startExplicitMarks(api: AddonApi): () => void {
     const trackPlaying = (): Track | null => current?.title && current.artists?.[0]?.name
         ? { id: current.id, title: current.title, artist: current.artists[0].name, duration: currentDuration(current) }
         : null
+
+    const precheckQueue = async () => {
+        if (prechecking) return
+        prechecking = true
+        try {
+            while (!stopped && skipEnabled && upcoming.length) {
+                const track = upcoming.shift()!
+                try {
+                    await classify(api, track, shared)
+                } catch (error) {
+                    if (!stopped) api.logger.warn('Не удалось заранее проверить трек очереди', error)
+                }
+            }
+        } finally {
+            prechecking = false
+        }
+    }
+
+    const acceptQueue = (snapshot: Awaited<ReturnType<AddonApi['client']['getQueueSnapshot']>>) => {
+        upcoming = []
+        if (stopped || !skipEnabled) return
+        const currentId = current?.id
+        const snapshotIndex = snapshot.currentIndex ?? -1
+        const currentIndex = !currentId || snapshot.items[snapshotIndex]?.id === currentId
+            ? snapshotIndex
+            : snapshot.items.findIndex(track => track.id === currentId)
+        if (currentIndex < 0) return
+        for (const track of snapshot.items.slice(currentIndex + 1, currentIndex + 11)) {
+            if (track.title && track.artists?.[0]?.name) {
+                upcoming.push({
+                    id: track.id, title: track.title,
+                    artist: track.artists[0].name, duration: currentDuration(track),
+                })
+            }
+        }
+        void precheckQueue()
+    }
+
+    const refreshQueue = () => {
+        const revision = ++queueRevision
+        if (!skipEnabled) {
+            upcoming = []
+            return
+        }
+        void api.client.getQueueSnapshot().then(snapshot => {
+            if (!stopped && revision === queueRevision) acceptQueue(snapshot)
+        }).catch(error => {
+            if (!stopped) api.logger.warn('Не удалось прочитать очередь для предварительной проверки', error)
+        })
+    }
 
     const checkPlayback = () => {
         const check = ++playbackCheck
@@ -247,7 +311,7 @@ export function startExplicitMarks(api: AddonApi): () => void {
     }
 
     const clearMark = (host: Element) => {
-        host.querySelector(':scope > [data-lyrics-verdict-mark]')?.remove()
+        removeBadge(host)
         host.removeAttribute('data-lyrics-verdict-host')
         marks.delete(host)
     }
@@ -285,7 +349,7 @@ export function startExplicitMarks(api: AddonApi): () => void {
                 const latestTrack = bar ? trackPlaying() : findTrack(title)
                 if (stopped || !title.isConnected || !latestTrack || keyOf(latestTrack) !== key || marks.get(host) !== entry) return
                 entry.verdict = verdict
-                if (verdict === 'unknown') host.querySelector(':scope > [data-lyrics-verdict-mark]')?.remove()
+                if (verdict === 'unknown') removeBadge(host)
                 else showBadge(host, verdict)
             }).catch(error => api.logger.warn('Не удалось проверить трек', error))
         })
@@ -306,12 +370,17 @@ export function startExplicitMarks(api: AddonApi): () => void {
         if (current?.id === track?.id && current?.title === track?.title) return
         current = track
         checkPlayback()
+        refreshQueue()
         schedule()
     }
     let receivedTrackEvent = false
     const unsubscribe = api.client.onCurrentTrackChange(track => {
         receivedTrackEvent = true
         onTrack(track)
+    })
+    const unsubscribeQueue = api.client.onQueueChange(snapshot => {
+        ++queueRevision
+        acceptQueue(snapshot)
     })
     const readSkip = api.storage.get<boolean>(SKIP_SETTING_KEY).then(saved => {
         if (stopped) return
@@ -320,6 +389,7 @@ export function startExplicitMarks(api: AddonApi): () => void {
         skipEnabled = typeof saved === 'boolean' ? saved : legacyValue === true
         updateMenuSwitch()
         checkPlayback()
+        refreshQueue()
     }).catch(error => api.logger.warn('Не удалось прочитать настройку пропуска', error))
     const toggle = async (actionApi: AddonApi) => {
         if (savingSkip || stopped) return
@@ -333,6 +403,7 @@ export function startExplicitMarks(api: AddonApi): () => void {
             if (stopped) return
             skipEnabled = enabled
             checkPlayback()
+            refreshQueue()
             await actionApi.toasts.show(enabled
                 ? 'Пропуск треков с матом или без текста включён.'
                 : 'Пропуск треков с матом или без текста выключен.')
@@ -369,6 +440,7 @@ export function startExplicitMarks(api: AddonApi): () => void {
             else item.setAttribute('role', role)
         }
         unsubscribe()
+        unsubscribeQueue()
         if (toggleSkip === toggle) toggleSkip = undefined
         if (timer !== undefined) window.clearTimeout(timer)
         for (const host of marks.keys()) clearMark(host)

@@ -3,7 +3,7 @@ const addonConfig = {
     directoryName: 'lyrics-explicit-mark',
     name: 'Lyrics Explicit Mark',
     description: 'Проверяет текст трека на ругательства и сексуальные упоминания.',
-    version: '0.1.20',
+    version: '0.1.22',
     author: 'agencyofviolence',
     image: 'Assets/main_image.png',
     banner: 'Assets/banner.png',
@@ -13,7 +13,7 @@ const addonConfig = {
     cssScope: 'global',
     allowedUrls: ['https://lrclib.net', 'https://raw.githubusercontent.com/lenorio/EXECLIPTCHECKER/'],
     supportedVersions: [],
-    requirements: { minHostApi: 1, capabilities: ['lifecycle-v1', 'async-start-v1', 'net-per-addon-v1'] },
+    requirements: { minHostApi: 1, capabilities: ['lifecycle-v1', 'async-start-v1', 'net-per-addon-v1', 'native-ui-v2'] },
 }
 
 export default addonConfig
