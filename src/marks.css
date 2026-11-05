@@ -14,7 +14,7 @@
     flex: 0 0 auto;
     vertical-align: middle;
     opacity: 0.5;
-    pointer-events: none;
+    pointer-events: auto;
 }
 
 [data-lyrics-verdict-mark="explicit"] {

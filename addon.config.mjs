@@ -3,7 +3,7 @@ const addonConfig = {
     directoryName: 'lyrics-explicit-mark',
     name: 'Lyrics Explicit Mark',
     description: 'Проверяет текст трека на ругательства и сексуальные упоминания.',
-    version: '0.1.19',
+    version: '0.1.20',
     author: 'agencyofviolence',
     image: 'Assets/main_image.png',
     banner: 'Assets/banner.png',

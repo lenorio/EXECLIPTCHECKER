@@ -167,8 +167,8 @@ async function classify(api: AddonApi, track: Track, shared: Promise<Map<string,
 
 type Badge = CachedVerdict | 'loading'
 const badges = {
-    explicit: { markup: explicitSvg, label: 'Explicit — ругательства или сексуальная лексика' },
-    clean: { markup: cleanSvg, label: 'Неподходящие слова не обнаружены' },
+    explicit: { markup: explicitSvg, label: 'В треке есть мат' },
+    clean: { markup: cleanSvg, label: 'В треке нет мата' },
     missing: { markup: missingSvg, label: 'Текст песни не найден' },
     loading: { markup: spinnerSvg, label: 'Проверяем текст песни' },
 }
@@ -183,6 +183,9 @@ function showBadge(host: Element, badge: Badge): void {
     svg.setAttribute('role', 'img')
     svg.setAttribute('aria-label', label)
     svg.setAttribute('fill', 'currentColor')
+    const title = document.createElementNS('http://www.w3.org/2000/svg', 'title')
+    title.textContent = label
+    svg.prepend(title)
     if (existing) existing.replaceWith(svg)
     else host.append(svg)
 }
